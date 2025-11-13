@@ -125,8 +125,8 @@ Rules:
             import google.generativeai as genai
             
             genai.configure(api_key=self.api_key)
-            # Use models/ prefix with the stable v1 API
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
+            # Use correct model name without models/ prefix
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
             response = model.generate_content(
                 prompt,
@@ -213,8 +213,9 @@ def should_use_fallback(deepseek_result: Dict) -> bool:
     if deepseek_result.get('verdict') == 'insufficient':
         return True
     
-    # Use fallback if confidence is very low
-    if deepseek_result.get('confidence', 1.0) < 0.5:
+    # Use fallback only if confidence is VERY low (< 0.3)
+    # Changed from 0.5 to 0.3 to avoid unnecessary fallbacks
+    if deepseek_result.get('confidence', 1.0) < 0.3:
         return True
     
     return False
@@ -260,7 +261,12 @@ def apply_gemini_fallback(
                 ds_verdict
             )
             
-            final_verdicts.append(gemini_verdict)
+            # If Gemini also fails (returns error), keep the original DeepSeek verdict
+            if gemini_verdict.get('error', False):
+                logger.warning(f"Gemini fallback failed for {claim_id}, keeping DeepSeek verdict")
+                final_verdicts.append(ds_verdict)
+            else:
+                final_verdicts.append(gemini_verdict)
         else:
             # Keep DeepSeek result
             final_verdicts.append(ds_verdict)

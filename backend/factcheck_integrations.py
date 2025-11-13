@@ -110,7 +110,8 @@ class NewsCheckAPI:
                 self.api_url,
                 headers=headers,
                 json=payload,
-                timeout=10
+                timeout=10,
+                verify=False  # Bypass SSL verification for expired certificate
             )
             response.raise_for_status()
             

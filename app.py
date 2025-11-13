@@ -4,9 +4,13 @@ Complete multi-stage verification pipeline with clean separated output.
 """
 
 import os
+import warnings
 import streamlit as st
 from dotenv import load_dotenv
 import logging
+
+# Suppress PyTorch warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='torch')
 
 # Load environment variables
 load_dotenv()
@@ -171,7 +175,13 @@ def main():
                     try:
                         extracted_data = extract_text('image', image_file=image_file)
                         st.session_state['extracted_data'] = extracted_data
-                        st.success("✅ Text extracted from image")
+                        
+                        # Check if OCR failed due to Tesseract not being installed
+                        if extracted_data['metadata'].get('error') == 'tesseract_not_installed':
+                            st.error("❌ Tesseract OCR is not installed!")
+                            st.info(extracted_data['body'])
+                        else:
+                            st.success("✅ Text extracted from image")
                     except Exception as e:
                         st.error(f"❌ OCR failed: {str(e)}")
             else:

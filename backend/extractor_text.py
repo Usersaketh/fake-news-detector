@@ -237,13 +237,23 @@ class TextExtractor:
             Dict with extracted text and metadata
         """
         if not TESSERACT_AVAILABLE:
+            error_msg = (
+                "Tesseract OCR is not installed or not in PATH.\n\n"
+                "Please install Tesseract:\n"
+                "- Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki\n"
+                "- macOS: brew install tesseract\n"
+                "- Linux: sudo apt-get install tesseract-ocr\n\n"
+                "After installation, restart your terminal/IDE."
+            )
+            logger.error("Tesseract not available")
             return {
-                "headline": "OCR not available",
-                "body": "Please install pytesseract and Tesseract OCR to extract text from images.",
+                "headline": "❌ OCR Not Available",
+                "body": error_msg,
                 "full_text": "",
                 "metadata": {
                     "source": "image_input",
-                    "extraction_method": "ocr_unavailable"
+                    "extraction_method": "ocr_unavailable",
+                    "error": "tesseract_not_installed"
                 }
             }
         
