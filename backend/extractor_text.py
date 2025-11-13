@@ -12,16 +12,10 @@ from requests_html import HTMLSession
 from PIL import Image
 import io
 import logging
+import base64
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
-
-# Try to import pytesseract
-try:
-    import pytesseract
-    TESSERACT_AVAILABLE = True
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    logger.warning("pytesseract not available. Image OCR will be limited.")
 
 
 class TextExtractor:
@@ -32,6 +26,15 @@ class TextExtractor:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
+        # Initialize OpenAI client for vision-based OCR
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        if self.openrouter_api_key:
+            self.vision_client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=self.openrouter_api_key
+            )
+        else:
+            self.vision_client = None
     
     def extract_from_text(self, headline: str, body: str) -> Dict:
         """
@@ -228,7 +231,7 @@ class TextExtractor:
     
     def extract_from_image(self, image_file) -> Dict:
         """
-        Extract text from image using OCR.
+        Extract text from image using Qwen vision model via OpenRouter.
         
         Args:
             image_file: Image file object or bytes
@@ -236,60 +239,112 @@ class TextExtractor:
         Returns:
             Dict with extracted text and metadata
         """
-        if not TESSERACT_AVAILABLE:
+        if not self.vision_client:
             error_msg = (
-                "Tesseract OCR is not installed or not in PATH.\n\n"
-                "Please install Tesseract:\n"
-                "- Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki\n"
-                "- macOS: brew install tesseract\n"
-                "- Linux: sudo apt-get install tesseract-ocr\n\n"
-                "After installation, restart your terminal/IDE."
+                "OpenRouter API key not found.\n\n"
+                "Please add OPENROUTER_API_KEY to your .env file:\n"
+                "Get your API key from https://openrouter.ai/\n\n"
+                "This feature uses Qwen vision model for intelligent text extraction."
             )
-            logger.error("Tesseract not available")
+            logger.error("OpenRouter API key not configured")
             return {
-                "headline": "❌ OCR Not Available",
+                "headline": "❌ Vision Model Not Available",
                 "body": error_msg,
                 "full_text": "",
                 "metadata": {
                     "source": "image_input",
-                    "extraction_method": "ocr_unavailable",
-                    "error": "tesseract_not_installed"
+                    "extraction_method": "vision_unavailable",
+                    "error": "api_key_missing"
                 }
             }
         
         try:
-            # Load image
+            # Load and convert image to base64
+            logger.info("Processing image with Qwen vision model")
+            
             if isinstance(image_file, bytes):
-                image = Image.open(io.BytesIO(image_file))
+                image_bytes = image_file
             else:
-                image = Image.open(image_file)
+                # Read from file-like object
+                image_file.seek(0)
+                image_bytes = image_file.read()
             
-            # Perform OCR
-            logger.info("Performing OCR on image")
-            text = pytesseract.image_to_string(image)
+            # Convert to base64 for API
+            import base64
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            image_url = f"data:image/jpeg;base64,{base64_image}"
             
-            # Clean and structure the text
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            # Call Qwen vision model
+            completion = self.vision_client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "https://github.com/fake-news-detector",
+                    "X-Title": "Fake News Detector",
+                },
+                model="qwen/qwen2.5-vl-32b-instruct:free",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Extract ALL text from this image. "
+                                    "If this appears to be a news article, social media post, or meme with text, "
+                                    "identify the HEADLINE (main title/claim) and BODY (supporting text/details). \n\n"
+                                    "Format your response as:\n"
+                                    "HEADLINE: [main title or claim]\n"
+                                    "BODY: [all other text content]\n\n"
+                                    "If there's only one piece of text, put it in HEADLINE and leave BODY empty."
+                                )
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url
+                                }
+                            }
+                        ]
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=1000
+            )
             
-            if not lines:
+            # Parse the response
+            response_text = completion.choices[0].message.content.strip()
+            logger.info(f"Vision model response (first 200 chars): {response_text[:200]}")
+            
+            # Parse HEADLINE and BODY from response
+            headline = ""
+            body = ""
+            
+            if "HEADLINE:" in response_text and "BODY:" in response_text:
+                parts = response_text.split("BODY:", 1)
+                headline_part = parts[0].replace("HEADLINE:", "").strip()
+                body_part = parts[1].strip() if len(parts) > 1 else ""
+                
+                headline = headline_part
+                body = body_part
+            else:
+                # Fallback: use first line as headline, rest as body
+                lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+                headline = lines[0] if lines else "No text detected"
+                body = '\n'.join(lines[1:]) if len(lines) > 1 else ""
+            
+            full_text = f"{headline}\n\n{body}" if body else headline
+            
+            if not headline and not body:
                 return {
                     "headline": "No text detected in image",
                     "body": "",
                     "full_text": "",
                     "metadata": {
                         "source": "image_input",
-                        "extraction_method": "ocr",
+                        "extraction_method": "vision_model",
+                        "model": "qwen/qwen2.5-vl-32b-instruct",
                         "status": "no_text_found"
                     }
                 }
-            
-            # Try to identify headline (usually first substantial line)
-            headline = lines[0] if lines else "No headline detected"
-            
-            # Remaining lines as body
-            body = '\n'.join(lines[1:]) if len(lines) > 1 else ""
-            
-            full_text = '\n'.join(lines)
             
             return {
                 "headline": headline,
@@ -297,20 +352,21 @@ class TextExtractor:
                 "full_text": full_text,
                 "metadata": {
                     "source": "image_input",
-                    "extraction_method": "ocr",
-                    "lines_extracted": len(lines)
+                    "extraction_method": "vision_model",
+                    "model": "qwen/qwen2.5-vl-32b-instruct",
+                    "status": "success"
                 }
             }
             
         except Exception as e:
-            logger.error(f"OCR extraction failed: {e}")
+            logger.error(f"Vision model extraction failed: {e}")
             return {
                 "headline": "Image extraction failed",
                 "body": f"Error: {str(e)}",
                 "full_text": "",
                 "metadata": {
                     "source": "image_input",
-                    "extraction_method": "ocr",
+                    "extraction_method": "vision_model",
                     "status": "error",
                     "error": str(e)
                 }

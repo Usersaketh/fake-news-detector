@@ -7,7 +7,7 @@ A comprehensive fake news detection system built with Streamlit and Python, feat
 ### Input Types
 - **Text Input**: Paste headline and article body directly
 - **URL Input**: Fetch and extract content from web pages
-- **Image Input**: OCR extraction from screenshots, memes, or printed text
+- **Image Input**: AI-powered text extraction from screenshots, memes, or social media posts using Qwen vision model
 
 ### Verification Pipeline
 1. **HuggingFace Quick Check**: Preliminary classification (separate panel)
@@ -21,19 +21,13 @@ A comprehensive fake news detection system built with Streamlit and Python, feat
 
 ### Prerequisites
 - Python 3.8+
-- Tesseract OCR (for image text extraction)
-
-#### Install Tesseract
-**Windows**: Download from https://github.com/UB-Mannheim/tesseract/wiki
-**macOS**: `brew install tesseract`
-**Linux**: `sudo apt-get install tesseract-ocr`
 
 ### Setup
 
 1. Clone the repository:
 ```bash
 git clone <your-repo-url>
-cd firebase-fake
+cd fake-news-detector
 ```
 
 2. Create a virtual environment:
@@ -94,7 +88,7 @@ app.py                          # Streamlit UI with 4-section layout
 backend/
 ├── __init__.py
 ├── utils.py                    # Caching, retry logic, helpers
-├── extractor_text.py           # URL fetch, HTML parse, OCR
+├── extractor_text.py           # URL fetch, HTML parse, AI vision extraction
 ├── claim_extractor.py          # Extract verifiable claims
 ├── quick_hf.py                 # HuggingFace preliminary check
 ├── search_serper.py            # SERPER evidence search
@@ -129,17 +123,22 @@ Extracted text for transparency
 ## Models Used
 
 ### DeepSeek R1 (Primary)
-- Model: `deepseek/deepseek-r1-0528-qwen3-8b:free`
+- Model: `deepseek/deepseek-r1:free`
 - Via: OpenRouter API
 - Purpose: Evidence-based reasoning and verdict
 
 ### Gemini (Fallback)
-- Model: `gemini-pro`
+- Model: `gemini-1.5-flash`
 - Via: Google AI API
 - Purpose: Backup when DeepSeek fails or returns low confidence
 
+### Qwen Vision (Image Extraction)
+- Model: `qwen/qwen2.5-vl-32b-instruct:free`
+- Via: OpenRouter API
+- Purpose: Intelligent text extraction from images, screenshots, and memes
+
 ### HuggingFace (Quick Check)
-- Model: Configurable (default: sentence-transformers)
+- Model: `Pulk17/Fake-News-Detection`
 - Purpose: Fast preliminary classification
 
 ## Trust Scoring

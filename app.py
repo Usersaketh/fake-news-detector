@@ -167,23 +167,27 @@ def main():
     
     with input_tab3:
         st.subheader("Upload image (OCR)")
+        st.caption("*Powered by Qwen Vision Model via OpenRouter*")
         image_file = st.file_uploader("Upload image:", type=['png', 'jpg', 'jpeg', 'bmp'])
         
         if st.button("🔍 Verify Image", key="btn_image"):
             if image_file:
-                with st.spinner("Performing OCR on image..."):
+                with st.spinner("Extracting text from image using AI vision model..."):
                     try:
                         extracted_data = extract_text('image', image_file=image_file)
                         st.session_state['extracted_data'] = extracted_data
                         
-                        # Check if OCR failed due to Tesseract not being installed
-                        if extracted_data['metadata'].get('error') == 'tesseract_not_installed':
-                            st.error("❌ Tesseract OCR is not installed!")
+                        # Check if extraction failed due to API key missing
+                        error_type = extracted_data['metadata'].get('error')
+                        if error_type == 'api_key_missing':
+                            st.error("❌ OpenRouter API key not configured!")
                             st.info(extracted_data['body'])
+                        elif error_type:
+                            st.error(f"❌ Image extraction failed: {extracted_data['body']}")
                         else:
-                            st.success("✅ Text extracted from image")
+                            st.success("✅ Text extracted from image using AI vision model")
                     except Exception as e:
-                        st.error(f"❌ OCR failed: {str(e)}")
+                        st.error(f"❌ Extraction failed: {str(e)}")
             else:
                 st.warning("Please upload an image.")
     
