@@ -100,17 +100,108 @@ def main():
     st.markdown("**Multi-stage AI-powered fact-checking pipeline**")
     st.markdown("---")
     
+    # Initialize session history in session state
+    if 'history' not in st.session_state:
+        st.session_state.history = []
+    
     # Sidebar
     with st.sidebar:
-        st.header("ℹ️ About")
-        st.write("""
-        This system uses:
-        - **HuggingFace**: Pulk17/Fake-News-Detection model (Quick Check)
-        - **SERPER**: Web evidence search
-        - **FactCheck APIs**: Official databases
-        - **DeepSeek R1**: Primary reasoning (via OpenRouter)
-        - **Gemini**: Fallback verification
-        """)
+        st.header("🤖 AI Models Used")
+        
+        with st.expander("**DeepSeek R1** - Primary Reasoning", expanded=False):
+            st.markdown("""
+            **Role:** Primary fact-checking engine
+            
+            **Capabilities:**
+            - Deep reasoning and logical analysis
+            - Context-aware verdict generation
+            - Confidence scoring (0.0-1.0)
+            - Evidence synthesis from multiple sources
+            
+            **Access:** Via OpenRouter API
+            """)
+        
+        with st.expander("**Qwen 2.5 Vision** - Image OCR", expanded=False):
+            st.markdown("""
+            **Role:** Image text extraction
+            
+            **Capabilities:**
+            - Multi-language OCR
+            - Screenshot text extraction
+            - Handwriting recognition
+            - Layout-aware text parsing
+            
+            **Access:** Via OpenRouter API
+            """)
+        
+        with st.expander("**Gemini 1.5 Flash** - Fallback", expanded=False):
+            st.markdown("""
+            **Role:** Backup verification system
+            
+            **Activation:** When DeepSeek confidence < 0.3
+            
+            **Capabilities:**
+            - Fast secondary verification
+            - Cross-validation of low-confidence claims
+            - Alternative reasoning paths
+            
+            **Access:** Direct Google Generative AI API
+            """)
+        
+        with st.expander("**HuggingFace Model** - Quick Check", expanded=False):
+            st.markdown("""
+            **Model:** Pulk17/Fake-News-Detection
+            
+            **Role:** Preliminary fast screening
+            
+            **Note:** For reference only, not authoritative
+            
+            **Output:** Real/Fake binary classification
+            """)
+        
+        with st.expander("**SERPER API** - Evidence Search", expanded=False):
+            st.markdown("""
+            **Role:** Web evidence gathering
+            
+            **Capabilities:**
+            - Google Search integration
+            - Trust score calculation
+            - Domain authority ranking
+            - Snippet extraction
+            """)
+        
+        with st.expander("**FactCheck APIs** - Databases", expanded=False):
+            st.markdown("""
+            **Services:** Google FactCheck, NewsCheck
+            
+            **Role:** Pre-verified fact database lookup
+            
+            **Coverage:**
+            - Professional fact-checking organizations
+            - Historical claims database
+            - Curated authoritative sources
+            """)
+        
+        st.markdown("---")
+        
+        # Session History
+        st.header("📜 Recent History")
+        if st.session_state.history:
+            for idx, entry in enumerate(reversed(st.session_state.history[-5:]), 1):
+                verdict = entry['verdict']
+                confidence = entry['confidence']
+                headline = entry['headline']
+                timestamp = entry['timestamp']
+                
+                verdict_color = get_verdict_color(verdict)
+                verdict_emoji = get_verdict_emoji(verdict)
+                
+                with st.expander(f"{verdict_emoji} {truncate_text(headline, 30)}", expanded=False):
+                    st.markdown(f"**Verdict:** :{'green' if verdict == 'true' else 'red' if verdict == 'false' else 'orange'}[{verdict.upper()}]")
+                    st.markdown(f"**Confidence:** {format_confidence(confidence)}")
+                    st.caption(f"🕒 {timestamp}")
+        else:
+            st.info("No verification history yet")
         
         st.markdown("---")
         st.header("⚙️ Settings")
@@ -273,6 +364,15 @@ def run_verification_pipeline(extracted_data, max_claims, show_raw_text, show_ev
     
     st.success("🎉 Verification complete!")
     st.markdown("---")
+    
+    # Save to session history
+    from datetime import datetime
+    st.session_state.history.append({
+        'verdict': overall_result['overall_verdict'],
+        'confidence': overall_result['overall_confidence'],
+        'headline': extracted_data['headline'][:100],
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
     
     # ==================== SECTION 2: RESULTS ====================
     display_results(hf_result, overall_result, evidence_map, show_raw_text, extracted_data, show_evidence_details)
