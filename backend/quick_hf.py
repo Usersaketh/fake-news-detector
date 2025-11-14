@@ -1,12 +1,12 @@
 """
 HuggingFace quick check module.
-Provides fast preliminary classification using a lightweight model.
+Provides fast preliminary classification using multiple lightweight models.
 This is displayed separately and NOT considered authoritative.
 """
 
 import os
 import json
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import logging
 from backend.utils import cache_result, retry_on_failure
 
@@ -22,26 +22,35 @@ except ImportError:
 
 
 class HuggingFaceQuickCheck:
-    """Quick preliminary check using HuggingFace models."""
+    """Quick preliminary check using multiple HuggingFace models."""
     
     def __init__(self):
         self.hf_token = os.getenv("HUGGING_FACE_TOKEN")
-        self.model_name = "Pulk17/Fake-News-Detection"
-        self.pipeline = None
         
-        # Initialize pipeline if transformers available
+        # Multiple models for ensemble checking
+        self.models = [
+            "Pulk17/Fake-News-Detection",
+            "vikram71198/distilroberta-base-finetuned-fake-news-detection",
+            "jy46604790/Fake-News-Bert-Detect",
+            "winterForestStump/Roberta-fake-news-detector"
+        ]
+        
+        self.pipelines = {}
+        
+        # Initialize all models if transformers available
         if TRANSFORMERS_AVAILABLE:
-            try:
-                logger.info(f"Loading HuggingFace model: {self.model_name}")
-                self.pipeline = pipeline(
-                    "text-classification",
-                    model=self.model_name,
-                    token=self.hf_token if self.hf_token else None
-                )
-                logger.info("HuggingFace model loaded successfully")
-            except Exception as e:
-                logger.error(f"Failed to load HuggingFace model: {e}")
-                self.pipeline = None
+            for model_name in self.models:
+                try:
+                    logger.info(f"Loading HuggingFace model: {model_name}")
+                    self.pipelines[model_name] = pipeline(
+                        "text-classification",
+                        model=model_name,
+                        token=self.hf_token if self.hf_token else None
+                    )
+                    logger.info(f"✓ Model loaded: {model_name}")
+                except Exception as e:
+                    logger.error(f"✗ Failed to load {model_name}: {e}")
+                    self.pipelines[model_name] = None
         else:
             logger.warning("transformers not installed, using fallback")
     
@@ -49,60 +58,131 @@ class HuggingFaceQuickCheck:
     @retry_on_failure(max_attempts=2)
     def quick_check(self, text: str) -> Dict:
         """
-        Perform quick preliminary check on text using HuggingFace model.
+        Perform quick preliminary check on text using multiple HuggingFace models.
         
         Args:
             text: Text to analyze (headline + body preview)
             
         Returns:
-            Dict with summary, label, and confidence
+            Dict with results from all models and ensemble verdict
         """
-        logger.info("Performing HuggingFace quick check with Fake-News-Detection model")
+        logger.info("Performing HuggingFace quick check with multiple models")
         
         # Truncate text if too long (model has token limits)
         if len(text) > 512:
             text = text[:512]
         
-        # Use HuggingFace pipeline if available
-        if self.pipeline:
-            try:
-                # Run classification
-                result = self.pipeline(text, truncation=True, max_length=512)
-                
-                # Result format: [{'label': 'LABEL_0' or 'LABEL_1', 'score': 0.95}]
-                label_raw = result[0]['label']
-                confidence = result[0]['score']
-                
-                # Map labels (LABEL_0 = Real, LABEL_1 = Fake for this model)
-                if label_raw == "LABEL_0":
-                    label = "likely-true"
-                    verdict_text = "Real News"
-                else:
-                    label = "likely-false"
-                    verdict_text = "Fake News"
-                
-                # Generate simple summary (first sentence)
-                summary = self._generate_summary(text)
-                
-                result_dict = {
-                    "summary": summary,
-                    "label": label,
-                    "confidence": float(confidence),
-                    "raw_label": label_raw,
-                    "verdict": verdict_text,
-                    "model": "Pulk17/Fake-News-Detection"
-                }
-                
-                logger.info(f"HF quick check complete: {label} (confidence: {confidence:.2f})")
-                return result_dict
-                
-            except Exception as e:
-                logger.error(f"HF pipeline failed: {e}")
-                return self._fallback_response(text)
-        else:
-            # Fallback if model not loaded
-            logger.warning("HuggingFace model not available, using heuristic fallback")
+        model_results = []
+        
+        # Run all available models
+        for model_name in self.models:
+            if model_name in self.pipelines and self.pipelines[model_name]:
+                try:
+                    result = self._check_with_model(text, model_name)
+                    if result:
+                        model_results.append(result)
+                except Exception as e:
+                    logger.error(f"Model {model_name} failed: {e}")
+        
+        # If no models worked, use fallback
+        if not model_results:
+            logger.warning("All HuggingFace models failed, using heuristic fallback")
             return self._fallback_response(text)
+        
+        # Calculate ensemble verdict
+        ensemble_result = self._calculate_ensemble(model_results, text)
+        
+        return ensemble_result
+    
+    def _check_with_model(self, text: str, model_name: str) -> Optional[Dict]:
+        """
+        Check text with a specific model.
+        
+        Args:
+            text: Text to check
+            model_name: Name of the model
+            
+        Returns:
+            Result dict or None if failed
+        """
+        try:
+            pipeline_obj = self.pipelines[model_name]
+            result = pipeline_obj(text, truncation=True, max_length=512)
+            
+            # Result format: [{'label': 'LABEL_0' or 'LABEL_1', 'score': 0.95}]
+            label_raw = result[0]['label']
+            confidence = result[0]['score']
+            
+            # Map labels - try to handle different label formats
+            # Most models: LABEL_0 = Real/True, LABEL_1 = Fake/False
+            if label_raw.upper() in ["LABEL_0", "REAL", "TRUE", "LEGIT"]:
+                label = "real"
+                verdict_text = "Real News"
+            elif label_raw.upper() in ["LABEL_1", "FAKE", "FALSE", "UNRELIABLE"]:
+                label = "fake"
+                verdict_text = "Fake News"
+            else:
+                # If uncertain, check the score
+                label = "fake" if confidence > 0.5 else "real"
+                verdict_text = "Fake News" if label == "fake" else "Real News"
+            
+            return {
+                "model": model_name.split('/')[-1],  # Short name
+                "full_model": model_name,
+                "label": label,
+                "confidence": float(confidence),
+                "verdict": verdict_text,
+                "raw_label": label_raw
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking with {model_name}: {e}")
+            return None
+    
+    def _calculate_ensemble(self, model_results: List[Dict], text: str) -> Dict:
+        """
+        Calculate ensemble verdict from multiple model results.
+        
+        Args:
+            model_results: List of results from individual models
+            text: Original text
+            
+        Returns:
+            Ensemble result dict
+        """
+        # Count votes
+        fake_votes = sum(1 for r in model_results if r['label'] == 'fake')
+        real_votes = sum(1 for r in model_results if r['label'] == 'real')
+        
+        # Calculate average confidence
+        avg_confidence = sum(r['confidence'] for r in model_results) / len(model_results)
+        
+        # Determine ensemble verdict
+        if fake_votes > real_votes:
+            ensemble_label = "likely-false"
+            ensemble_verdict = "Fake News (Ensemble)"
+        elif real_votes > fake_votes:
+            ensemble_label = "likely-true"
+            ensemble_verdict = "Real News (Ensemble)"
+        else:
+            ensemble_label = "uncertain"
+            ensemble_verdict = "Mixed Results"
+        
+        summary = self._generate_summary(text)
+        
+        return {
+            "summary": summary,
+            "label": ensemble_label,
+            "confidence": avg_confidence,
+            "verdict": ensemble_verdict,
+            "model": f"Ensemble ({len(model_results)} models)",
+            "individual_results": model_results,
+            "vote_breakdown": {
+                "fake": fake_votes,
+                "real": real_votes,
+                "total": len(model_results)
+            }
+        }
     
     def _generate_summary(self, text: str) -> str:
         """

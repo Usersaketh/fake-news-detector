@@ -40,7 +40,7 @@ st.set_page_config(
     page_title="Fake News Verification System",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # Custom CSS
@@ -51,9 +51,7 @@ st.markdown("""
         font-weight: bold;
         text-align: center;
         padding: 1rem 0;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: white;
     }
     .verdict-card {
         padding: 2rem;
@@ -97,7 +95,7 @@ def main():
     
     # Header
     st.markdown('<h1 class="main-header">🔍 Fake News Verification System</h1>', unsafe_allow_html=True)
-    st.markdown("**Multi-stage AI-powered fact-checking pipeline**")
+    st.markdown("<p style='text-align: center; font-weight: bold;'>Multi-stage AI-powered fact-checking pipeline</p>", unsafe_allow_html=True)
     st.markdown("---")
     
     # Initialize session history in session state
@@ -148,15 +146,21 @@ def main():
             **Access:** Direct Google Generative AI API
             """)
         
-        with st.expander("**HuggingFace Model** - Quick Check", expanded=False):
+        with st.expander("**HuggingFace Models** - Quick Check", expanded=False):
             st.markdown("""
-            **Model:** Pulk17/Fake-News-Detection
+            **Models (Ensemble):**
+            1. Pulk17/Fake-News-Detection
+            2. vikram71198/distilroberta-base
+            3. jy46604790/Fake-News-Bert
+            4. winterForestStump/Roberta-fake-news
             
             **Role:** Preliminary fast screening
             
+            **Method:** Ensemble voting with confidence averaging
+            
             **Note:** For reference only, not authoritative
             
-            **Output:** Real/Fake binary classification
+            **Output:** Real/Fake classification with vote breakdown
             """)
         
         with st.expander("**SERPER API** - Evidence Search", expanded=False):
@@ -322,10 +326,10 @@ def run_verification_pipeline(extracted_data, max_claims, show_raw_text, show_ev
         st.success(f"✅ Extracted {len(claims)} claims")
     
     # Quick HF check
-    with st.spinner("⚙️ Stage 2/6: Running HuggingFace quick check..."):
+    with st.spinner("⚙️ Stage 2/6: Running HuggingFace ensemble check (4 models)..."):
         full_text = extracted_data['full_text'][:1000]
         hf_result = perform_quick_check(full_text)
-        st.success("✅ Quick check complete")
+        st.success("✅ Ensemble quick check complete")
     
     # Search for evidence
     with st.spinner("⚙️ Stage 3/6: Searching for evidence (SERPER)..."):
@@ -388,9 +392,10 @@ def display_results(hf_result, overall_result, evidence_map, show_raw_text, extr
     
     # ==================== LEFT: HF QUICK CHECK ====================
     with col_left:
-        st.subheader("⚡ Quick Check")
-        st.caption("*HuggingFace Pulk17/Fake-News-Detection - Preliminary Only*")
+        st.subheader("⚡ Multi-Model Quick Check")
+        st.caption("*HuggingFace Models - Preliminary Ensemble*")
         
+        # Ensemble result
         hf_label = hf_result.get('label', 'uncertain')
         hf_confidence = hf_result.get('confidence', 0.0)
         hf_verdict = hf_result.get('verdict', 'Unknown')
@@ -404,19 +409,32 @@ def display_results(hf_result, overall_result, evidence_map, show_raw_text, extr
         else:
             hf_color = "#95a5a6"
         
-        st.markdown(f"""
-        <div style="padding: 1rem; background: {hf_color}20; border-left: 4px solid {hf_color}; border-radius: 5px;">
-            <div style="font-size: 1.2rem; font-weight: bold; color: {hf_color};">
-                {hf_verdict.upper()}
-            </div>
-            <div style="margin-top: 0.5rem;">
-                Confidence: {format_confidence(hf_confidence)}
-            </div>
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-                Model: {hf_model}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Display individual model results
+        if 'individual_results' in hf_result:
+            st.markdown("**Individual Model Results:**")
+            for result in hf_result['individual_results']:
+                model_name = result['model']
+                verdict = result['verdict']
+                confidence = result['confidence']
+                
+                # Color for individual result
+                if result['label'] == 'real':
+                    color = "#2ecc71"
+                    icon = "✅"
+                else:
+                    color = "#e74c3c"
+                    icon = "❌"
+                
+                st.markdown(f"""
+                <div style="padding: 0.5rem; background: {color}10; border-left: 3px solid {color}; border-radius: 3px; margin: 0.3rem 0;">
+                    <div style="font-size: 0.8rem; font-weight: 600; color: {color};">
+                        {icon} {model_name}
+                    </div>
+                    <div style="font-size: 0.75rem; color: #666;">
+                        {verdict} ({format_confidence(confidence)})
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         
         st.markdown("**Summary:**")
         st.write(hf_result.get('summary', 'No summary available'))
